@@ -8,7 +8,7 @@ from tkinter import messagebox, filedialog
 import openpyxl
 from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
-from openpyxl.styles import PatternFill
+from openpyxl.styles import PatternFill,Font,Alignment
 import win32com.client
 
 # Constants for consistent configuration
@@ -277,7 +277,7 @@ def compare_excel_files(file1_path, file2_path):
         raise
 
 
-def generate_excel_report(all_reports):
+def generate_excel_report(all_reports,compare_folder):
     """Generate an Excel report summarizing comparison results."""
     wb = openpyxl.Workbook()
     summary_sheet = wb.active
@@ -363,12 +363,12 @@ def generate_excel_report(all_reports):
             max_length = max(len(str(cell.value or '')) for cell in col)
             sheet.column_dimensions[col[0].column_letter].width = max_length + 2
 
-    report_path = os.path.join(os.path.dirname(__file__), f"{timestamp}_comparison_report.xlsx")
+    report_path = os.path.join(compare_folder, f"{timestamp}_comparison_report.xlsx")
     wb.save(report_path)
     return report_path
 
 
-def generate_report(all_reports):
+def generate_report(all_reports,compare_folder):
     """Generate a markdown report summarizing comparison results."""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     report_lines = [
@@ -427,22 +427,23 @@ def generate_report(all_reports):
 
     report_lines.extend([""] + final_report)
     timestamp = datetime.now().strftime(TIMESTAMP_FORMAT)
-    report_path = os.path.join(os.path.dirname(__file__), f"{timestamp}_comparison_report.md")
+    report_path = os.path.join(compare_folder, f"{timestamp}_comparison_report.md")
     with open(report_path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(report_lines))
     return report_path
 
 
-def process_folder(recompare_folder):
+def process_folder(compare_folder):
     """Process all subfolders in the recompare directory, comparing Excel files."""
     try:
         all_reports = []
         # Get all subfolders in the recompare directory
-        subfolders = [f for f in os.listdir(recompare_folder) if os.path.isdir(os.path.join(recompare_folder, f))]
+        subfolders = [f for f in os.listdir(compare_folder) if os.path.isdir(os.path.join(compare_folder, f))]
         logging.info(f'Found {len(subfolders)} subfolders')
+        
 
         for subfolder in subfolders:
-            subfolder_path = os.path.join(recompare_folder, subfolder)
+            subfolder_path = os.path.join(compare_folder, subfolder)
             v1_path = os.path.join(subfolder_path, 'V1')
             v2_path = os.path.join(subfolder_path, 'V2')
             result_path = os.path.join(subfolder_path, 'result')
@@ -487,8 +488,8 @@ def process_folder(recompare_folder):
             all_reports.append({subfolder: school_reports})
 
         if all_reports:
-            generate_report(all_reports)
-            generate_excel_report(all_reports)
+            generate_report(all_reports,compare_folder)
+            generate_excel_report(all_reports,compare_folder)
             logging.info('Reports generated successfully')
         else:
             logging.info('No mismatches found')
@@ -509,16 +510,16 @@ def main():
 
     try:
         root = create_root()
-        recompare_folder = select_directory(root, "recompareフォルダーを選択してください")
-        if not recompare_folder:
+        compare_folder = select_directory(root, "recompareフォルダーを選択してください")
+        if not compare_folder:
             logging.warning('Folder selection cancelled')
             show_message("フォルダー選択", "フォルダーが選択されていません。終了します...")
             return
 
-        logging.info(f'Selected recompare folder: {recompare_folder}')
+        logging.info(f'Selected recompare folder: {compare_folder}')
         show_message("比較を開始します", "比較プロセスを開始しています....")
 
-        if process_folder(recompare_folder):
+        if process_folder(compare_folder):
             logging.info('Comparison completed successfully')
             show_message("比較が完了しました", "比較プロセスが完了しました.")
         else:
