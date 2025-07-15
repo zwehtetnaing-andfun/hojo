@@ -74,7 +74,7 @@ pywin32>=306
    - Execute the script:
 
      ```bash
-     python excel_comparison.py
+     python main.py
      ```
    - A dialog will prompt you to select the `recompare` folder.
 
