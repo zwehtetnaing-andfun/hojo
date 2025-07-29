@@ -107,3 +107,8 @@ pywin32>=306
 - **Permission Issues**: Run the terminal as an administrator if you encounter file access errors.
 - **Missing Dependencies**: Verify `requirements.txt` installation with `pip list`.
 - **Log Files**: Check the `logs` folder for detailed error messages if the program fails.
+
+
+## 🔧 Program Modifications
+
+1. [Changed color, ignore "歳", compare rows according to column 5](modifications/program_modification_report_2025_07_29.md)
