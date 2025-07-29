@@ -19,7 +19,9 @@ DATETIME_PATTERNS = [
     '%Y-%m-%d', '%Y/%m/%d'
 ]
 TIME_RANGE_SEPARATORS = ['〜', '～', '~']
-YELLOW_FILL = PatternFill(patternType="solid", fgColor='FFFF00')
+# YELLOW_FILL = PatternFill(patternType="solid", fgColor='FFFF00')
+PINK_FILL = PatternFill(patternType="solid", fgColor='FFC0CB')
+
 
 
 def setup_logging(debug_level='DEBUG'):
@@ -86,7 +88,8 @@ def normalize_value(value):
 
     # Clean string values by removing unwanted characters
     value = str(value).strip().replace('_x000D_', '').replace('\r', '').replace('\n', '')
-    value = value.replace('"', '').replace(' ', '').replace('、', ',').replace('・', ',').replace('.', ',')
+    value = value.replace('"', '').replace(' ', '').replace('、', ',').replace('・', ',').replace('.', ',').replace('歳','')
+	
 
     # Return None for empty strings after cleaning
     if not value:
@@ -170,6 +173,45 @@ def recalculate_excel(file_path):
     except Exception as e:
         logging.error(f"Failed to recalculate {file_path}: {e}")
         raise
+    
+def get_row_headers(sheet1, sheet2):
+    try:
+        headers1 = {}
+        headers2 = {}
+        current_main_header_v1 = None
+        current_main_header_v2 = None
+
+        for row in range(8, min(sheet1.max_row, sheet2.max_row) + 1):
+            main_header_v1 = sheet1.cell(row, 1).value
+            main_header_v2 = sheet2.cell(row, 1).value
+
+            sub_header_v1 = sheet1.cell(row, 5).value
+            sub_header_v2 = sheet2.cell(row, 5).value
+
+            current_main_header_v1 = main_header_v1 if main_header_v1 else current_main_header_v1
+            current_main_header_v2 = main_header_v2 if main_header_v2 else current_main_header_v2
+
+            combined1 = f"{current_main_header_v1} - {sub_header_v1}" if sub_header_v1 and current_main_header_v1 else current_main_header_v1
+            combined2 = f"{current_main_header_v2} - {sub_header_v2}" if sub_header_v2 and current_main_header_v2 else current_main_header_v2
+
+            if combined1 and combined1 not in headers1.values():
+                headers1[row] = combined1
+            if combined2 and combined2 not in headers2.values():
+                headers2[row] = combined2
+
+        header_pairs = [
+            (col1, col2)
+            for col1, h1 in headers1.items()
+            for col2, h2 in headers2.items()
+            if h1 == h2
+        ]
+        
+        return header_pairs, headers1, headers2
+        
+    except Exception as e:
+        logging.error(f"Error processing header pairs: {str(e)}")
+        return [], {}, {}
+
 
 
 def compare_excel_files(file1_path, file2_path):
@@ -206,12 +248,22 @@ def compare_excel_files(file1_path, file2_path):
             row_max = max(sheet1.max_row, sheet2.max_row)
             col_max = max(sheet1.max_column, sheet2.max_column)
 
-            for row in range(1, row_max + 1):
-                for col in range(1, col_max + 1):
+
+            if sheets1.get(sheet_id) == "補助調書2":
+                header_pairs, headers1, headers2 = get_row_headers(sheet1, sheet2)
+                row_pairs = header_pairs
+                col_start = 5
+            else:
+                row_pairs = [(row, row) for row in range(1, row_max + 1)]
+                col_start = 1
+
+            for row1, row2 in row_pairs:
+
+                for col in range(col_start, col_max + 1):
                     try:
-                        v1 = normalize_value(sheet1.cell(row, col).value)
-                        v2 = normalize_value(sheet2.cell(row, col).value)
-                        logging.debug(f'Cell ({row}, {col}): {v1} vs {v2}')
+                        v1 = normalize_value(sheet1.cell(row1, col).value)
+                        v2 = normalize_value(sheet2.cell(row2, col).value)
+                        logging.debug(f'Cell ({row2}, {col}): {v1} vs {v2}')
 
                         if v1 is None and v2 is None:
                             continue
@@ -223,12 +275,12 @@ def compare_excel_files(file1_path, file2_path):
                         if isinstance(v1, datetime) or isinstance(v2, datetime) or is_datetime_string(
                                 v1_str) or is_datetime_string(v2_str):
                             if extract_date(v1) != extract_date(v2):
-                                sheet2.cell(row, col).fill = YELLOW_FILL
+                                sheet2.cell(row2, col).fill = PINK_FILL
                                 mismatch_count += 1
                                 sheet_mismatches += 1
                                 sheet_report.append({
-                                    'row1': row, 'col1': col, 'val1': v1,
-                                    'row2': row, 'col2': col, 'val2': v2
+                                    'row1': row1, 'col1': col, 'val1': v1,
+                                    'row2': row2, 'col2': col, 'val2': v2
                                 })
                             continue
 
@@ -237,27 +289,27 @@ def compare_excel_files(file1_path, file2_path):
                             t1 = normalize_time_range(str(v1))
                             t2 = normalize_time_range(str(v2))
                             if t1 != t2:
-                                sheet2.cell(row, col).fill = YELLOW_FILL
+                                sheet2.cell(row2, col).fill = PINK_FILL
                                 mismatch_count += 1
                                 sheet_mismatches += 1
                                 sheet_report.append({
-                                    'row1': row, 'col1': col, 'val1': v1,
-                                    'row2': row, 'col2': col, 'val2': v2
+                                    'row1': row1, 'col1': col, 'val1': v1,
+                                    'row2': row2, 'col2': col, 'val2': v2
                                 })
                             continue
 
                         # General comparison for other values
                         if v1_str != v2_str:
-                            sheet2.cell(row, col).fill = YELLOW_FILL
+                            sheet2.cell(row2, col).fill = PINK_FILL
                             mismatch_count += 1
                             sheet_mismatches += 1
                             sheet_report.append({
-                                'row1': row, 'col1': col, 'val1': v1,
-                                'row2': row, 'col2': col, 'val2': v2
+                                'row1': row1, 'col1': col, 'val1': v1,
+                                'row2': row2, 'col2': col, 'val2': v2
                             })
 
                     except Exception as e:
-                        logging.error(f'Error at cell ({row}, {col}): {e}')
+                        logging.error(f'Error at cell ({row2}, {col}): {e}')
                         mismatch_count += 1
                         continue
 
