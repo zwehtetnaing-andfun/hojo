@@ -679,7 +679,7 @@ def main():
 
     try:
         root = create_root()
-        compare_folder = select_directory(root, "recompareフォルダーを選択してください")
+        compare_folder = select_directory(root, "比較するフォルダを選択してください")
         if not compare_folder:
             logging.warning('Folder selection cancelled')
             show_message("フォルダー選択", "フォルダーが選択されていません。終了します...")
