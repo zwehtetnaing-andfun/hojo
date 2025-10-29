@@ -10,6 +10,7 @@ from openpyxl.workbook import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.styles import PatternFill,Font,Alignment
 import win32com.client
+import unicodedata
 
 # Constants for consistent configuration
 LOG_DIR = 'logs'
@@ -19,7 +20,11 @@ DATETIME_PATTERNS = [
     '%Y-%m-%d', '%Y/%m/%d'
 ]
 TIME_RANGE_SEPARATORS = ['〜', '～', '~']
-# YELLOW_FILL = PatternFill(patternType="solid", fgColor='FFFF00')
+SPEC_SHEETS = ["補助調書2","市内児童一覧","退所・受託児童一覧"]
+
+YELLOW_FILL = PatternFill(patternType="solid", fgColor='FFFF00')
+ORANGE_FILL  = PatternFill(patternType="solid", fgColor="FFD966") 
+
 PINK_FILL = PatternFill(patternType="solid", fgColor='FFC0CB')
 
 
@@ -72,6 +77,7 @@ def show_message(title, message):
     messagebox.showinfo(title, message)
 
 
+
 def normalize_value(value):
     """Normalize cell values for consistent comparison, handling various data types."""
     # Handle empty or whitespace-only strings
@@ -86,10 +92,18 @@ def normalize_value(value):
     if isinstance(value, float) and value.is_integer():
         value = int(value)
 
-    # Clean string values by removing unwanted characters
-    value = str(value).strip().replace('_x000D_', '').replace('\r', '').replace('\n', '')
+    # Convert to string for further processing
+    value = str(value).strip()
+
+    # Normalize full-width to half-width (e.g., ３児 -> 3児, ＡＢＣ -> ABC)
+    value = unicodedata.normalize('NFKC', value)
+
+    # Remove unwanted characters
+    value = value.replace('_x000D_', '').replace('\r', '').replace('\n', '')
     value = value.replace('"', '').replace(' ', '').replace('、', ',').replace('・', ',').replace('.', ',').replace('歳','')
-	
+
+    for word in ["理事長", "経営者", "園長"]:
+        value = value.replace(word, '')
 
     # Return None for empty strings after cleaning
     if not value:
@@ -174,44 +188,113 @@ def recalculate_excel(file_path):
         logging.error(f"Failed to recalculate {file_path}: {e}")
         raise
     
-def get_row_headers(sheet1, sheet2):
+import logging
+
+def add_headers(row, value, headers, ignore_list=None):
+    if value and value not in headers.values() and (not ignore_list or value not in ignore_list):
+        headers[row] = value
+def get_row_headers(sheet1, sheet2, sheet_name):
     try:
-        headers1 = {}
-        headers2 = {}
-        current_main_header_v1 = None
-        current_main_header_v2 = None
+        headers1, headers2 = {}, {}
+        col_start = 1
+        row_max = max(sheet1.max_row, sheet2.max_row)
 
-        for row in range(8, min(sheet1.max_row, sheet2.max_row) + 1):
-            main_header_v1 = sheet1.cell(row, 1).value
-            main_header_v2 = sheet2.cell(row, 1).value
+        if sheet_name == "補助調書2":
+            current_main_header_v1 = None
+            current_main_header_v2 = None
 
-            sub_header_v1 = sheet1.cell(row, 5).value
-            sub_header_v2 = sheet2.cell(row, 5).value
+            ignore_main_headers = ["常勤人数", "常勤換算数"]
+            ignore_sub_headers = ["氏名"]
 
-            current_main_header_v1 = main_header_v1 if main_header_v1 else current_main_header_v1
-            current_main_header_v2 = main_header_v2 if main_header_v2 else current_main_header_v2
+            for row in range(8, row_max + 1):
+                # Read main & sub headers
+                main_header_v1 = sheet1.cell(row=row, column=1).value
+                main_header_v2 = sheet2.cell(row=row, column=1).value
+                sub_header_v1 = sheet1.cell(row=row, column=5).value
+                sub_header_v2 = sheet2.cell(row=row, column=5).value
 
-            combined1 = f"{current_main_header_v1} - {sub_header_v1}" if sub_header_v1 and current_main_header_v1 else current_main_header_v1
-            combined2 = f"{current_main_header_v2} - {sub_header_v2}" if sub_header_v2 and current_main_header_v2 else current_main_header_v2
+                # Ignore unwanted sub headers
+                if sub_header_v1 in ignore_sub_headers:
+                    sub_header_v1 = None
+                if sub_header_v2 in ignore_sub_headers:
+                    sub_header_v2 = None
 
-            if combined1 and combined1 not in headers1.values():
-                headers1[row] = combined1
-            if combined2 and combined2 not in headers2.values():
-                headers2[row] = combined2
+                # Update current main headers if found
+                if main_header_v1:
+                    if main_header_v1 in ignore_main_headers and current_main_header_v1:
+                        combined1 = f"{current_main_header_v1} - {main_header_v1}"
+                    else:
+                        current_main_header_v1 = main_header_v1
+                        combined1 = (
+                            f"{current_main_header_v1} - {sub_header_v1}"
+                            if sub_header_v1 else current_main_header_v1
+                        )
+                else:
+                    combined1 = (
+                        f"{current_main_header_v1} - {sub_header_v1}"
+                        if sub_header_v1 else current_main_header_v1
+                    )
 
+                if main_header_v2:
+                    if main_header_v2 in ignore_main_headers and current_main_header_v2:
+                        combined2 = f"{current_main_header_v2} - {main_header_v2}"
+                    else:
+                        current_main_header_v2 = main_header_v2
+                        combined2 = (
+                            f"{current_main_header_v2} - {sub_header_v2}"
+                            if sub_header_v2 else current_main_header_v2
+                        )
+                else:
+                    combined2 = (
+                        f"{current_main_header_v2} - {sub_header_v2}"
+                        if sub_header_v2 else current_main_header_v2
+                    )
+
+                # Save headers
+                add_headers(row, combined1, headers1)
+                add_headers(row, combined2, headers2)
+
+            col_start = 5
+
+        elif sheet_name == "市内児童一覧":
+            preload_headers = {5: "市内", 6: "市外", 7: "合計"}
+            headers1.update(preload_headers)
+            headers2.update(preload_headers)
+
+            for row in range(10, row_max + 1):
+                add_headers(row, sheet1.cell(row=row, column=2).value, headers1)
+                add_headers(row, sheet2.cell(row=row, column=2).value, headers2)
+
+            col_start = 2
+
+        elif sheet_name == "退所・受託児童一覧":
+            ignore_header = ["児童氏名"]
+
+            for row in range(5, row_max + 1):
+                add_headers(row, sheet1.cell(row=row, column=2).value, headers1, ignore_header)
+                add_headers(row, sheet2.cell(row=row, column=2).value, headers2, ignore_header)
+
+        # Find matching header pairs
         header_pairs = [
-            (col1, col2)
-            for col1, h1 in headers1.items()
-            for col2, h2 in headers2.items()
+            (row1, row2)
+            for row1, h1 in headers1.items()
+            for row2, h2 in headers2.items()
             if h1 == h2
         ]
-        
-        return header_pairs, headers1, headers2
-        
+
+        # Paired values
+        paired_values1 = set(headers1.values()) & set(headers2.values())
+        paired_values2 = set(headers2.values()) & set(headers1.values())
+
+        # Non-paired headers
+        not_pair_headers1 = {row: h for row, h in headers1.items() if h not in paired_values1}
+        not_pair_headers2 = {row: h for row, h in headers2.items() if h not in paired_values2}
+
+        return header_pairs, headers1, headers2, not_pair_headers1, not_pair_headers2, col_start
+
     except Exception as e:
         logging.error(f"Error processing header pairs: {str(e)}")
-        return [], {}, {}
-
+        return [], {}, {}, {}, {}, 1
 
 
 def compare_excel_files(file1_path, file2_path):
@@ -248,19 +331,26 @@ def compare_excel_files(file1_path, file2_path):
             row_max = max(sheet1.max_row, sheet2.max_row)
             col_max = max(sheet1.max_column, sheet2.max_column)
 
+            sheet_name = sheets1.get(sheet_id)
 
-            if sheets1.get(sheet_id) == "補助調書2":
-                header_pairs, headers1, headers2 = get_row_headers(sheet1, sheet2)
+
+            if sheet_name in SPEC_SHEETS :
+                header_pairs, headers1, headers2,not_pair_headers1,not_pair_headers2,col_start = get_row_headers(sheet1, sheet2, sheet_name)
                 row_pairs = header_pairs
-                col_start = 5
+                
             else:
                 row_pairs = [(row, row) for row in range(1, row_max + 1)]
                 col_start = 1
 
             for row1, row2 in row_pairs:
 
-                for col in range(col_start, col_max + 1):
+                for col in range(col_start, 35):
+
+                    if sheet_name == "市内児童一覧" and row2 > 9 and col == 14:
+                        continue  # Skip column N (14) for rows > 9
+
                     try:
+
                         v1 = normalize_value(sheet1.cell(row1, col).value)
                         v2 = normalize_value(sheet2.cell(row2, col).value)
                         logging.debug(f'Cell ({row2}, {col}): {v1} vs {v2}')
@@ -313,13 +403,40 @@ def compare_excel_files(file1_path, file2_path):
                         mismatch_count += 1
                         continue
 
+            if sheet_name in SPEC_SHEETS:
+                if not_pair_headers1:
+                    for row in not_pair_headers1:
+                        v1 = normalize_value(sheet1.cell(row, 5).value)
+                        if v1 is not None:
+                            # Missing in sheet2
+                            sheet2.cell(row, 5).fill = ORANGE_FILL
+                            mismatch_count += 1
+                            sheet_mismatches += 1
+                            sheet_report.append({
+                                'row1': row, 'col1': 5, 'val1': v1,
+                                'row2': row, 'col2': 5, 'val2': "MISSING"
+                            })
+
+                if not_pair_headers2:
+                    for row in not_pair_headers2:
+                        v2 = normalize_value(sheet2.cell(row, 5).value)
+                        if v2 is not None:
+                            # Missing in sheet1
+                            sheet2.cell(row, 5).fill = ORANGE_FILL
+                            mismatch_count += 1
+                            sheet_mismatches += 1
+                            sheet_report.append({
+                                'row1': row, 'col1': 5, 'val1': "MISSING",
+                                'row2': row, 'col2': 5, 'val2': v2
+                            })
+
             if sheet_report:
                 reports.append({
                     "sheet_name": sheet_id,
                     "sheet_report": sheet_report,
                     "mismatch_found": sheet_mismatches
                 })
-
+                
         result = 'X' if mismatch_count > 0 else 'O'
         logging.info(f'Comparison result: {result} (mismatches: {mismatch_count})')
         return result, wb2, reports
@@ -352,8 +469,8 @@ def generate_excel_report(all_reports,compare_folder):
     else:
         for school_report in all_reports:
             for school_id, file_reports in school_report.items():
-                if not file_reports:
-                    continue
+                # if not file_reports:
+                #     continue
                 school_sheet = wb.create_sheet(re.sub(r'[\\\/:*?"<>|]', '_', school_id)[:31])
                 current_row = 1
                 school_mismatch_total = 0
@@ -511,12 +628,12 @@ def process_folder(compare_folder):
 
             # Get Excel files from V1 and V2 folders
             v1_files = [f for f in os.listdir(v1_path) if f.endswith(('.xlsx', '.xls'))]
-            v2_files = set(f for f in os.listdir(v2_path) if f.endswith(('.xlsx', '.xls')))
+            v2_files = set(f.strip() for f in os.listdir(v2_path) if f.endswith(('.xlsx', '.xls')))
 
             school_reports = []
             for file_name in v1_files:
                 base_name = os.path.splitext(file_name)[0]
-                file2_name = f"{base_name}.xlsx" if f"{base_name}.xlsx" in v2_files else f"{base_name}.xls"
+                file2_name = f"{base_name} .xlsx" if f"{base_name} .xlsx" in v2_files else f"{base_name}.xls"
                 if file2_name not in v2_files:
                     logging.warning(f'No matching file for {file_name} in V2')
                     continue
